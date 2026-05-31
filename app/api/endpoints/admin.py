@@ -23,7 +23,8 @@ def get_workers(
     """
     Get all workers in the hostel system (Admins only).
     """
-    query = db.query(User).join(Role).filter(Role.name == "worker")
+    from sqlalchemy.orm import joinedload
+    query = db.query(User).options(joinedload(User.role_relation), joinedload(User.room)).join(Role).filter(Role.name == "worker")
     if current_admin.role == "hostel_admin" and current_admin.hostel_id:
         query = query.filter(User.hostel_id == current_admin.hostel_id)
     return query.all()
@@ -220,7 +221,8 @@ def get_students(
     """
     Get all students in the hostel system (Admins only).
     """
-    query = db.query(User).join(Role).filter(Role.name == "student")
+    from sqlalchemy.orm import joinedload
+    query = db.query(User).options(joinedload(User.role_relation), joinedload(User.room)).join(Role).filter(Role.name == "student")
     if current_admin.role == "hostel_admin" and current_admin.hostel_id:
         query = query.filter(User.hostel_id == current_admin.hostel_id)
     return query.all()

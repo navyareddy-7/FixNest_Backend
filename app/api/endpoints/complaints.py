@@ -76,7 +76,11 @@ def read_complaints(
     """
     Retrieve complaints. Filters based on user role automatically.
     """
-    query = db.query(Complaint)
+    from sqlalchemy.orm import joinedload
+    query = db.query(Complaint).options(
+        joinedload(Complaint.student),
+        joinedload(Complaint.worker)
+    )
     
     if current_user.role == "student":
         query = query.filter(Complaint.student_id == current_user.id)
