@@ -368,10 +368,19 @@ def get_analytics(
     """
     Get complaint analytics and insights (Admins only).
     """
+    is_hostel_admin = current_admin.role == "hostel_admin" and current_admin.hostel_id
+    hostel_id = current_admin.hostel_id
+
+    # Base complaint query
+    base_complaint_query = db.query(Complaint)
+    if is_hostel_admin:
+        base_complaint_query = base_complaint_query.filter(Complaint.hostel_id == hostel_id)
+
     # 1. Total Status Breakdown
-    status_counts = db.query(
-        Complaint.status, func.count(Complaint.id)
-    ).group_by(Complaint.status).all()
+    status_counts = db.query(Complaint.status, func.count(Complaint.id))
+    if is_hostel_admin:
+        status_counts = status_counts.filter(Complaint.hostel_id == hostel_id)
+    status_counts = status_counts.group_by(Complaint.status).all()
     
     status_map = {"pending": 0, "in_progress": 0, "resolved": 0}
     total = 0
@@ -381,20 +390,20 @@ def get_analytics(
     status_map["total"] = total
 
     # 2. Category Breakdown
-    category_counts = db.query(
-        Complaint.category, func.count(Complaint.id)
-    ).group_by(Complaint.category).all()
+    category_counts = db.query(Complaint.category, func.count(Complaint.id))
+    if is_hostel_admin:
+        category_counts = category_counts.filter(Complaint.hostel_id == hostel_id)
+    category_counts = category_counts.group_by(Complaint.category).all()
     
     category_map = {}
     for cat_name, count in category_counts:
         category_map[cat_name] = count
 
     # 3. Worker Workload (Active tasks assigned)
-    active_worker_tasks = db.query(
-        User.id, User.full_name, func.count(Complaint.id)
-    ).join(Complaint, Complaint.worker_id == User.id)\
-     .filter(User.role == "worker", Complaint.status != "resolved")\
-     .group_by(User.id, User.full_name).all()
+    active_worker_query = db.query(User.id, User.full_name, func.count(Complaint.id)).join(Complaint, Complaint.worker_id == User.id).filter(User.role_id == db.query(Role.id).filter(Role.name == "worker").scalar(), Complaint.status != "resolved")
+    if is_hostel_admin:
+         active_worker_query = active_worker_query.filter(User.hostel_id == hostel_id)
+    active_worker_tasks = active_worker_query.group_by(User.id, User.full_name).all()
      
     workload = []
     for w_id, w_name, count in active_worker_tasks:
@@ -405,7 +414,11 @@ def get_analytics(
         })
 
     # Ensure workers with 0 tasks are also included
-    all_workers = db.query(User).filter(User.role == "worker", User.status == "active").all()
+    all_workers_query = db.query(User).filter(User.role_id == db.query(Role.id).filter(Role.name == "worker").scalar(), User.status == "active")
+    if is_hostel_admin:
+        all_workers_query = all_workers_query.filter(User.hostel_id == hostel_id)
+    all_workers = all_workers_query.all()
+    
     workload_worker_ids = [w["worker_id"] for w in workload]
     for worker in all_workers:
         if worker.id not in workload_worker_ids:
@@ -416,26 +429,31 @@ def get_analytics(
             })
 
     # Calculate average resolution time dynamically
-    avg_res_time = db.query(
-        func.avg(func.extract("epoch", Complaint.updated_at - Complaint.created_at)) / 3600
-    ).filter(Complaint.status == "resolved").scalar()
+    avg_res_query = db.query(func.avg(func.extract("epoch", Complaint.updated_at - Complaint.created_at)) / 3600).filter(Complaint.status == "resolved")
+    if is_hostel_admin:
+        avg_res_query = avg_res_query.filter(Complaint.hostel_id == hostel_id)
+    avg_res_time = avg_res_query.scalar()
     
     average_hours = round(float(avg_res_time), 1) if avg_res_time is not None else 0.0
 
     # Calculate SLA Compliance (Resolved within 48 hours)
-    total_resolved = db.query(func.count(Complaint.id)).filter(Complaint.status == "resolved").scalar() or 0
-    compliant_resolved = db.query(func.count(Complaint.id)).filter(
-        Complaint.status == "resolved",
-        func.extract("epoch", Complaint.updated_at - Complaint.created_at) / 3600 <= 48
-    ).scalar() or 0
+    total_res_query = db.query(func.count(Complaint.id)).filter(Complaint.status == "resolved")
+    compliant_res_query = db.query(func.count(Complaint.id)).filter(Complaint.status == "resolved", func.extract("epoch", Complaint.updated_at - Complaint.created_at) / 3600 <= 48)
+    
+    if is_hostel_admin:
+        total_res_query = total_res_query.filter(Complaint.hostel_id == hostel_id)
+        compliant_res_query = compliant_res_query.filter(Complaint.hostel_id == hostel_id)
+        
+    total_resolved = total_res_query.scalar() or 0
+    compliant_resolved = compliant_res_query.scalar() or 0
 
     sla_compliance = round((compliant_resolved / total_resolved) * 100, 1) if total_resolved > 0 else 100.0
 
     # Hostel Breakdown (Problems vs Solved)
-    hostel_stats = db.query(
-        Hostel.id, Hostel.name, Complaint.status, func.count(Complaint.id)
-    ).join(Complaint, Complaint.hostel_id == Hostel.id)\
-     .group_by(Hostel.id, Hostel.name, Complaint.status).all()
+    hostel_stats_query = db.query(Hostel.id, Hostel.name, Complaint.status, func.count(Complaint.id)).join(Complaint, Complaint.hostel_id == Hostel.id)
+    if is_hostel_admin:
+        hostel_stats_query = hostel_stats_query.filter(Hostel.id == hostel_id)
+    hostel_stats = hostel_stats_query.group_by(Hostel.id, Hostel.name, Complaint.status).all()
 
     hostel_metrics = {}
     for h_id, h_name, status, count in hostel_stats:

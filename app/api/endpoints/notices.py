@@ -16,7 +16,10 @@ def get_notices(
     """
     Get all active notices. Students see notices specific to their hostel or global alerts.
     """
-    return db.query(Notice).order_by(Notice.created_at.desc()).all()
+    query = db.query(Notice)
+    if current_user.role != "super_admin" and current_user.hostel_id:
+        query = query.filter((Notice.hostel_id == current_user.hostel_id) | (Notice.hostel_id == None))
+    return query.order_by(Notice.created_at.desc()).all()
 
 @router.post("/", response_model=NoticeResponse)
 def create_notice(

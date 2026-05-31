@@ -16,7 +16,10 @@ def get_rooms(
     """
     Get all active room allocations.
     """
-    return db.query(Room).all()
+    query = db.query(Room)
+    if current_user.role != "super_admin" and current_user.hostel_id:
+        query = query.filter(Room.hostel_id == current_user.hostel_id)
+    return query.all()
 
 @router.post("/", response_model=RoomResponse)
 def create_room(
