@@ -8,4 +8,5 @@ from app.models.comment import Comment  # noqa
 from app.models.hostel import Hostel  # noqa
 from app.models.room import Room  # noqa
 from app.models.notice import Notice  # noqa
+from app.models.emergency import Emergency  # noqa
 

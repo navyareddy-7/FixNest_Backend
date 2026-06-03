@@ -1,18 +1,34 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.api.endpoints import auth, complaints, admin, hostels, rooms, notices
+from app.api.endpoints import auth, complaints, admin, hostels, rooms, notices, emergency
 from app.core.config import settings
 from app.db.session import engine, Base, SessionLocal
 from app.db.base import Base as DiscoveryBase
 from app.models.user import User
 from app.models.role import Role
+from app.models.emergency import Emergency  # ensure emergencies table is created
 from app.core import security
 
 # Automatically create tables in local dev/production if they don't exist yet
 try:
     DiscoveryBase.metadata.create_all(bind=engine)
-    print("Database tables created successfully or already exist.")
-    
+    print("✅ Database tables created successfully or already exist.")
+
+    # Explicitly ensure emergency table exists (belt-and-suspenders for Render cold starts)
+    try:
+        from sqlalchemy import inspect as sa_inspect
+        inspector = sa_inspect(engine)
+        tables = inspector.get_table_names()
+        print(f"📋 Existing tables: {tables}")
+        if "emergencies" not in tables:
+            print("⚠️  emergencies table missing — creating now...")
+            Emergency.__table__.create(bind=engine, checkfirst=True)
+            print("✅ emergencies table created.")
+        else:
+            print("✅ emergencies table already exists.")
+    except Exception as ie:
+        print(f"⚠️  Table inspection warning: {ie}")
+
     # Automatic seed database
     db = SessionLocal()
     try:
@@ -31,7 +47,7 @@ try:
         print(f"Error seeding roles: {se}")
     finally:
         db.close()
-        
+
 except Exception as e:
     print(f"Error initializing database tables: {e}")
 
@@ -58,7 +74,9 @@ app.include_router(complaints.router, prefix=f"{settings.API_V1_STR}/complaints"
 app.include_router(admin.router, prefix=f"{settings.API_V1_STR}/admin", tags=["admin"])
 app.include_router(hostels.router, prefix=f"{settings.API_V1_STR}/hostels", tags=["hostels"])
 app.include_router(rooms.router, prefix=f"{settings.API_V1_STR}/rooms", tags=["rooms"])
-app.include_router(notices.router, prefix=f"{settings.API_V1_STR}/notices", tags=["notices"])
+app.include_router(notices.router,    prefix=f"{settings.API_V1_STR}/notices",   tags=["notices"])
+app.include_router(emergency.router,  prefix=f"{settings.API_V1_STR}/emergency", tags=["emergency"])
+
 
 @app.get("/")
 def read_root():
