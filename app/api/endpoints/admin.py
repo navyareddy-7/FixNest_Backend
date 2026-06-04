@@ -1,7 +1,7 @@
-from typing import Any, List
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
+from typing import Any, List, Optional
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Query
 from sqlalchemy.orm import Session
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from app.api import deps
 from app.models.complaint import Complaint
 from app.models.comment import Comment
@@ -24,7 +24,7 @@ def get_workers(
     Get all workers in the hostel system (Admins only).
     """
     from sqlalchemy.orm import joinedload
-    query = db.query(User).options(joinedload(User.role_relation), joinedload(User.room)).join(Role).filter(Role.name == "worker")
+    query = db.query(User).options(joinedload(User.role_relation), joinedload(User.room), joinedload(User.hostel)).join(Role).filter(Role.name == "worker")
     if current_admin.role == "hostel_admin" and current_admin.hostel_id:
         query = query.filter(User.hostel_id == current_admin.hostel_id)
     return query.all()
@@ -55,6 +55,7 @@ def create_worker(
         hashed_password=security.get_password_hash(worker_in.password),
         full_name=worker_in.full_name,
         phone_number=worker_in.phone_number,
+        staff_category=worker_in.staff_category or "General Maintenance Worker",
         role_id=role_obj.id,
         hostel_id=worker_in.hostel_id,
         status="active"
@@ -222,7 +223,7 @@ def get_students(
     Get all students in the hostel system (Admins only).
     """
     from sqlalchemy.orm import joinedload
-    query = db.query(User).options(joinedload(User.role_relation), joinedload(User.room)).join(Role).filter(Role.name == "student")
+    query = db.query(User).options(joinedload(User.role_relation), joinedload(User.room), joinedload(User.hostel)).join(Role).filter(Role.name == "student")
     if current_admin.role == "hostel_admin" and current_admin.hostel_id:
         query = query.filter(User.hostel_id == current_admin.hostel_id)
     return query.all()
@@ -273,6 +274,169 @@ def create_student(
     db.commit()
     db.refresh(db_student)
     return db_student
+
+@router.get("/users/search", response_model=List[UserResponse])
+def search_users(
+    query: str = Query(..., min_length=1, description="Search term to match against name, email, or phone"),
+    db: Session = Depends(deps.get_db),
+    current_admin: User = Depends(deps.get_current_active_admin)
+) -> Any:
+    """
+    Search users (students + workers) by name, email, or phone number.
+    Results are scoped to the admin's hostel when applicable (Admins only).
+    """
+    from sqlalchemy.orm import joinedload
+
+    search_pattern = f"%{query.strip()}%"
+
+    base_query = (
+        db.query(User)
+        .options(joinedload(User.role_relation), joinedload(User.room))
+        .join(Role)
+        .filter(
+            Role.name.in_(["student", "worker"]),
+            or_(
+                User.full_name.ilike(search_pattern),
+                User.email.ilike(search_pattern),
+                User.phone_number.ilike(search_pattern),
+            ),
+        )
+    )
+
+    # Hostel admins can only see users within their hostel
+    if current_admin.role == "hostel_admin" and current_admin.hostel_id:
+        base_query = base_query.filter(User.hostel_id == current_admin.hostel_id)
+
+    results = base_query.order_by(User.full_name).all()
+    return results
+
+
+# ─── Single-User CRUD ────────────────────────────────────────────────────────
+
+@router.get("/users/{user_id}", response_model=UserResponse)
+def get_user_detail(
+    user_id: int,
+    db: Session = Depends(deps.get_db),
+    current_admin: User = Depends(deps.get_current_active_admin),
+) -> Any:
+    """
+    Fetch the full profile of a single student or worker by ID (Admins only).
+    """
+    from sqlalchemy.orm import joinedload
+
+    print(f"[DEBUG] GET /admin/users/{user_id} — requested by admin id={current_admin.id} role={current_admin.role}")
+
+    user = (
+        db.query(User)
+        .options(
+            joinedload(User.role_relation),
+            joinedload(User.room),
+            joinedload(User.hostel),
+        )
+        .filter(User.id == user_id)
+        .first()
+    )
+
+    if not user:
+        print(f"[DEBUG] User {user_id} not found in database")
+        raise HTTPException(status_code=404, detail=f"User with ID {user_id} was not found")
+
+    print(f"[DEBUG] Found user: id={user.id} name={user.full_name} role={user.role} hostel_id={user.hostel_id}")
+
+    # Hostel admins can only view users within their hostel
+    if current_admin.role == "hostel_admin" and current_admin.hostel_id:
+        if user.hostel_id != current_admin.hostel_id:
+            print(f"[DEBUG] Access denied: admin hostel_id={current_admin.hostel_id} != user hostel_id={user.hostel_id}")
+            raise HTTPException(status_code=403, detail="Access denied to this user")
+
+    return user
+
+
+class UserProfileUpdate(BaseModel):
+    full_name: Optional[str] = None
+    phone_number: Optional[str] = None
+    email: Optional[str] = None
+    password: Optional[str] = None
+    staff_category: Optional[str] = None
+
+
+@router.put("/users/{user_id}", response_model=UserResponse)
+def update_user_profile(
+    *,
+    user_id: int,
+    user_in: UserProfileUpdate,
+    db: Session = Depends(deps.get_db),
+    current_admin: User = Depends(deps.get_current_active_admin),
+) -> Any:
+    """
+    Update a student or worker's profile fields (Admins only).
+    """
+    from sqlalchemy.orm import joinedload
+
+    user = (
+        db.query(User)
+        .options(joinedload(User.role_relation), joinedload(User.room), joinedload(User.hostel))
+        .filter(User.id == user_id)
+        .first()
+    )
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    # Hostel admins can only modify users in their hostel
+    if current_admin.role == "hostel_admin" and current_admin.hostel_id:
+        if user.hostel_id != current_admin.hostel_id:
+            raise HTTPException(status_code=403, detail="Access denied to this user")
+
+    if user_in.full_name is not None:
+        user.full_name = user_in.full_name
+    if user_in.phone_number is not None:
+        user.phone_number = user_in.phone_number
+    if user_in.staff_category is not None:
+        user.staff_category = user_in.staff_category
+    if user_in.email is not None:
+        # Check for duplicate email
+        existing = db.query(User).filter(User.email == user_in.email, User.id != user_id).first()
+        if existing:
+            raise HTTPException(status_code=400, detail="Email already in use by another account")
+        user.email = user_in.email
+    if user_in.password:
+        user.hashed_password = security.get_password_hash(user_in.password)
+
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    return user
+
+
+@router.delete("/users/{user_id}")
+def delete_user(
+    *,
+    user_id: int,
+    db: Session = Depends(deps.get_db),
+    current_admin: User = Depends(deps.get_current_active_admin),
+) -> Any:
+    """
+    Permanently delete a student or worker account (Admins only).
+    """
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    # Hostel admins can only delete users in their hostel
+    if current_admin.role == "hostel_admin" and current_admin.hostel_id:
+        if user.hostel_id != current_admin.hostel_id:
+            raise HTTPException(status_code=403, detail="Access denied to this user")
+
+    # Prevent admins from deleting themselves
+    if user.id == current_admin.id:
+        raise HTTPException(status_code=400, detail="You cannot delete your own account")
+
+    db.delete(user)
+    db.commit()
+    return {"status": "success", "message": f"User '{user.full_name}' has been deleted"}
+
+
+# ─── Status Toggle (kept separately for backward compatibility) ───────────────
 
 @router.put("/users/{id}/status", response_model=UserResponse)
 def update_user_status(

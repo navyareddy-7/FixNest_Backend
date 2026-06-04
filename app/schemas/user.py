@@ -6,6 +6,7 @@ class UserBase(BaseModel):
     email: EmailStr
     full_name: str
     phone_number: Optional[str] = None
+    staff_category: Optional[str] = None
     role: Optional[str] = "student" # student, worker, admin
     hostel_id: Optional[int] = None
     room_id: Optional[int] = None
@@ -30,6 +31,7 @@ class UserInDBBase(UserBase):
 
 class UserResponse(UserInDBBase):
     room_number: Optional[str] = None
+    hostel_name: Optional[str] = None
 
 class Token(BaseModel):
     access_token: str

@@ -12,6 +12,7 @@ class User(Base):
     hashed_password = Column(String, nullable=False)
     full_name = Column(String, nullable=False)
     phone_number = Column(String, nullable=True)
+    staff_category = Column(String, nullable=True, default="General Maintenance Worker")
     role_id = Column(Integer, ForeignKey("roles.id"), nullable=False)
     hostel_id = Column(Integer, ForeignKey("hostels.id"), nullable=True)
     room_id = Column(Integer, ForeignKey("rooms.id"), nullable=True)
@@ -30,3 +31,7 @@ class User(Base):
     @property
     def room_number(self) -> str:
         return self.room.room_number if self.room else ""
+
+    @property
+    def hostel_name(self) -> str:
+        return self.hostel.name if self.hostel else ""

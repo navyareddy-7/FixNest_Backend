@@ -151,9 +151,23 @@ def create_sos(
     print(f"[SOS] Location: hostel='{hostel_name}' room='{room_number}'")
 
     # ── Auto-assign the first active worker in the same hostel ────────────────
+    # Map emergency type to preferred staff category
+    category_map = {
+        "stuck_lift": "Lift Technician",
+        "fire": "Electrician",
+        "electrical": "Electrician",
+        "water_leakage": "Plumber",
+        "security": "Security Staff",
+        "locked_room": "Carpenter",
+        "medical": "General Maintenance Worker",
+        "other": "General Maintenance Worker"
+    }
+    preferred_category = category_map.get(payload.emergency_type, "General Maintenance Worker")
+
     technician = None
     try:
         if current_user.hostel_id:
+            # First try to find a technician matching the preferred category
             technician = (
                 db.query(User)
                 .join(Role)
@@ -161,9 +175,22 @@ def create_sos(
                     Role.name == "worker",
                     User.status == "active",
                     User.hostel_id == current_user.hostel_id,
+                    User.staff_category == preferred_category,
                 )
                 .first()
             )
+            # If no matching specialist is found, fallback to any active worker
+            if not technician:
+                technician = (
+                    db.query(User)
+                    .join(Role)
+                    .filter(
+                        Role.name == "worker",
+                        User.status == "active",
+                        User.hostel_id == current_user.hostel_id,
+                    )
+                    .first()
+                )
     except Exception as e:
         print(f"[SOS] Warning: could not find technician — {e}")
 

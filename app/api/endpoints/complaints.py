@@ -98,6 +98,53 @@ def read_complaints(
     complaints = query.order_by(Complaint.created_at.desc()).all()
     return complaints
 
+@router.get("/search", response_model=List[ComplaintResponse])
+def search_complaints(
+    q: str = "",
+    db: Session = Depends(deps.get_db),
+    current_user: User = Depends(deps.get_current_user),
+) -> Any:
+    """
+    Search complaints by ticket number (partial or full ID match).
+    Access is restricted by role — same rules as GET /complaints/.
+
+    Query param:  ?q=<search_term>
+      - Matches complaints whose string ID starts with or equals q (case-insensitive).
+      - Returns all matching records ordered by created_at DESC.
+    """
+    from sqlalchemy.orm import joinedload
+    from sqlalchemy import cast, String
+
+    query = db.query(Complaint).options(
+        joinedload(Complaint.student),
+        joinedload(Complaint.worker),
+    )
+
+    # Apply same role-based access control as the main list endpoint
+    if current_user.role == "student":
+        query = query.filter(Complaint.student_id == current_user.id)
+    elif current_user.role == "worker":
+        query = query.filter(Complaint.worker_id == current_user.id)
+    elif current_user.role == "hostel_admin" and current_user.hostel_id:
+        query = query.filter(Complaint.hostel_id == current_user.hostel_id)
+    # super_admin / admin → no additional filter
+
+    # Filter by ticket number (string prefix match on the integer id)
+    term = q.strip()
+    if term:
+        try:
+            # Optimised: if the term is a pure integer, match id exactly or as prefix
+            int(term)
+            query = query.filter(
+                cast(Complaint.id, String).like(f"{term}%")
+            )
+        except ValueError:
+            # Non-numeric input → return empty result set (ticket IDs are numeric)
+            return []
+
+    results = query.order_by(Complaint.created_at.desc()).all()
+    return results
+
 @router.get("/{id}", response_model=ComplaintResponse)
 def read_complaint_by_id(
     id: int,
