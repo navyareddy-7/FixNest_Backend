@@ -37,6 +37,25 @@ try:
         else:
             print("[OK] emergency_hotlines table already exists.")
 
+        # Ensure staff_category exists in users table
+        if "users" in tables:
+            from sqlalchemy import text
+            with engine.begin() as conn:
+                try:
+                    conn.execute(text("ALTER TABLE users ADD COLUMN staff_category VARCHAR DEFAULT 'General Maintenance Worker';"))
+                    print("[OK] Added staff_category column to users table.")
+                    conn.execute(text("""
+                        UPDATE users 
+                        SET staff_category = 'General Maintenance Worker' 
+                        WHERE role_id = (SELECT id FROM roles WHERE name = 'worker')
+                        AND staff_category IS NULL;
+                    """))
+                except Exception as e:
+                    if "already exists" in str(e).lower() or "duplicate column" in str(e).lower():
+                        print("[OK] staff_category column already exists in users.")
+                    else:
+                        print(f"[WARN] Error adding staff_category column: {e}")
+
     except Exception as ie:
         print(f"[WARN] Table inspection warning: {ie}")
 
