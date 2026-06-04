@@ -1,12 +1,13 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.api.endpoints import auth, complaints, admin, hostels, rooms, notices, emergency
+from app.api.endpoints import auth, complaints, admin, hostels, rooms, notices, emergency, emergency_hotline
 from app.core.config import settings
 from app.db.session import engine, Base, SessionLocal
 from app.db.base import Base as DiscoveryBase
 from app.models.user import User
 from app.models.role import Role
 from app.models.emergency import Emergency  # ensure emergencies table is created
+from app.models.emergency_hotline import EmergencyHotline  # ensure emergency_hotlines table is created
 from app.core import security
 
 # Automatically create tables in local dev/production if they don't exist yet
@@ -26,6 +27,12 @@ try:
             print("✅ emergencies table created.")
         else:
             print("✅ emergencies table already exists.")
+        if "emergency_hotlines" not in tables:
+            print("⚠️  emergency_hotlines table missing — creating now...")
+            EmergencyHotline.__table__.create(bind=engine, checkfirst=True)
+            print("✅ emergency_hotlines table created.")
+        else:
+            print("✅ emergency_hotlines table already exists.")
     except Exception as ie:
         print(f"⚠️  Table inspection warning: {ie}")
 
@@ -75,7 +82,8 @@ app.include_router(admin.router, prefix=f"{settings.API_V1_STR}/admin", tags=["a
 app.include_router(hostels.router, prefix=f"{settings.API_V1_STR}/hostels", tags=["hostels"])
 app.include_router(rooms.router, prefix=f"{settings.API_V1_STR}/rooms", tags=["rooms"])
 app.include_router(notices.router,    prefix=f"{settings.API_V1_STR}/notices",   tags=["notices"])
-app.include_router(emergency.router,  prefix=f"{settings.API_V1_STR}/emergency", tags=["emergency"])
+app.include_router(emergency.router,          prefix=f"{settings.API_V1_STR}/emergency",         tags=["emergency"])
+app.include_router(emergency_hotline.router,  prefix=f"{settings.API_V1_STR}/emergency-hotline", tags=["emergency-hotline"])
 
 
 @app.get("/")
