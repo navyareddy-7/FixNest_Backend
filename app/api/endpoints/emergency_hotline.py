@@ -25,6 +25,17 @@ from app.schemas.emergency_hotline import (
 router = APIRouter()
 
 
+# ─── Helper dependency ────────────────────────────────────────────────────────
+def get_current_active_admin_or_super(
+    current_user: User = Depends(deps.get_current_user),
+) -> User:
+    if current_user.role not in ["hostel_admin", "super_admin"]:
+        raise HTTPException(
+            status_code=http_status.HTTP_403_FORBIDDEN,
+            detail="Admin access required to manage emergency hotlines.",
+        )
+    return current_user
+
 # ─── GET / — fetch active hotline ────────────────────────────────────────────
 
 @router.get("/", response_model=Optional[EmergencyHotlineResponse])
@@ -49,7 +60,7 @@ def create_hotline(
     *,
     db: Session = Depends(deps.get_db),
     payload: EmergencyHotlineCreate,
-    current_user: User = Depends(deps.get_current_active_admin_or_super),
+    current_user: User = Depends(get_current_active_admin_or_super),
 ) -> Any:
     """
     Create a new hotline entry.
@@ -77,7 +88,7 @@ def update_hotline(
     *,
     db: Session = Depends(deps.get_db),
     payload: EmergencyHotlineUpdate,
-    current_user: User = Depends(deps.get_current_active_admin_or_super),
+    current_user: User = Depends(get_current_active_admin_or_super),
 ) -> Any:
     """Update the most recently created hotline."""
     hotline = (
@@ -197,13 +208,3 @@ def get_emergency_contacts(
     }
 
 
-# ─── Helper dependency ────────────────────────────────────────────────────────
-def get_current_active_admin_or_super(
-    current_user: User = Depends(deps.get_current_user),
-) -> User:
-    if current_user.role not in ["hostel_admin", "super_admin"]:
-        raise HTTPException(
-            status_code=http_status.HTTP_403_FORBIDDEN,
-            detail="Admin access required to manage emergency hotlines.",
-        )
-    return current_user
