@@ -51,3 +51,6 @@ class ChangePasswordRequest(BaseModel):
     new_password: str
     confirm_password: str
 
+class TokenData(BaseModel):
+    username: Optional[str] = None
+

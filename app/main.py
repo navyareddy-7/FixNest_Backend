@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.api.endpoints import auth, complaints, admin, hostels, rooms, notices, emergency, emergency_hotline
 from app.core.config import settings
+from app.api.endpoints import auth, complaints, admin, hostels, rooms, notices, emergency, emergency_hotline, notifications
 from app.db.session import engine, Base, SessionLocal
 from app.db.base import Base as DiscoveryBase
 from app.models.user import User
@@ -52,7 +52,7 @@ try:
                     """))
                 except Exception as e:
                     if "already exists" in str(e).lower() or "duplicate column" in str(e).lower():
-                        print("[OK] staff_category column already exists in users.")
+                        pass
                     else:
                         print(f"[WARN] Error adding staff_category column: {e}")
 
@@ -105,7 +105,7 @@ app.include_router(rooms.router,              prefix=f"{settings.API_V1_STR}/roo
 app.include_router(notices.router,            prefix=f"{settings.API_V1_STR}/notices",            tags=["notices"])
 app.include_router(emergency.router,          prefix=f"{settings.API_V1_STR}/emergency",          tags=["emergency"])
 app.include_router(emergency_hotline.router,  prefix=f"{settings.API_V1_STR}/emergency-hotline",  tags=["emergency-hotline"])
-
+app.include_router(notifications.router,      prefix=f"{settings.API_V1_STR}/notifications",      tags=["notifications"])
 
 @app.get("/")
 def read_root():
