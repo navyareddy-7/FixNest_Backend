@@ -4,12 +4,15 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
+import logging
+
+logger = logging.getLogger(__name__)
 
 from app.api import deps
 from app.core import security
 from app.core.config import settings
 from app.models.user import User
-from app.schemas.user import UserResponse, UserUpdate, Token
+from app.schemas.user import UserResponse, UserUpdate, Token, ChangePasswordRequest
 
 router = APIRouter()
 
@@ -54,7 +57,6 @@ def login(
         "user": user
     }
 
-
 @router.get("/me", response_model=UserResponse)
 def read_user_me(
     current_user: User = Depends(deps.get_current_user),
@@ -85,13 +87,72 @@ def update_user_me(
     if user_in.push_token is not None:
         current_user.push_token = user_in.push_token
 
-    if user_in.password is not None:
-        current_user.hashed_password = security.get_password_hash(
-            user_in.password
-        )
-
     db.add(current_user)
     db.commit()
     db.refresh(current_user)
 
     return current_user
+
+
+@router.post("/change-password")
+def change_password(
+    *,
+    db: Session = Depends(deps.get_db),
+    current_user: User = Depends(deps.get_current_user),
+    payload: ChangePasswordRequest
+) -> Any:
+    """
+    Change user password securely by verifying the current password first.
+    """
+    logger.info("[CHANGE PASSWORD] Request received")
+    
+    if not current_user:
+        logger.error("[CHANGE PASSWORD] User not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found"
+        )
+    logger.info("[CHANGE PASSWORD] User found")
+
+    # 1. Verify current password
+    if not security.verify_password(payload.current_password, current_user.hashed_password):
+        logger.warning("[CHANGE PASSWORD] Current password incorrect")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Current password is incorrect"
+        )
+    logger.info("[CHANGE PASSWORD] Password verified")
+    
+    # 2. Check that new password is different
+    if payload.current_password == payload.new_password:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="New password must be different from the old password"
+        )
+        
+    # 3. Check confirm password matches
+    if payload.new_password != payload.confirm_password:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Passwords do not match"
+        )
+
+    # 4. Update password
+    try:
+        current_user.hashed_password = security.get_password_hash(payload.new_password)
+        db.add(current_user)
+        db.commit()
+        logger.info("[CHANGE PASSWORD] Password updated")
+        logger.info("[CHANGE PASSWORD] Success")
+        
+        return {
+            "success": True,
+            "message": "Password updated successfully"
+        }
+    except Exception as e:
+        db.rollback()
+        logger.error(f"[CHANGE PASSWORD] Password update failed: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Password update failed"
+        )
